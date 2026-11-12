@@ -153,3 +153,35 @@ def gaped_inductor(
     geo.Add(negativeCond_)
 
     return Mesh(geo.GenerateMesh(maxh=h))
+
+
+def gapedInductorrefine(airgap : float = 1e-3, # if airgap put True
+                  h : float = 0.005 # maximum element size in the air
+                 ) -> Mesh:
+    """ inductor core with a gap  """
+    geo = CSG2d()
+    # define some primitives
+    box_ = Rectangle( pmin=(0.02,0.02), pmax=(0.08,0.08), mat="air", bc="out" )
+    iron_ = Rectangle( pmin=(0.04,0.04), pmax=(0.06,0.06), mat="iron")
+    airIron_ = Rectangle( pmin=(0.045,0.045), pmax=(0.055,0.055), mat="air")
+    positiveCond_ = Rectangle( pmin=(0.05,0.045), pmax=(0.055,0.055), mat="condP")
+    negativeCond_ = Rectangle( pmin=(0.06,0.045), pmax=(0.065,0.055), mat="condN")
+
+    if airgap:
+        airgap_ = Rectangle( pmin=(0.03,0.05 - airgap/2), pmax=(0.046,0.05 + airgap/2), mat="air")
+        iron = iron_ - airIron_ - airgap_ - negativeCond_ - positiveCond_
+        air = box_ - iron - positiveCond_ - negativeCond_ 
+    else :
+        iron = iron_ - airIron_ - negativeCond_ - positiveCond_
+        air = box_  - iron - negativeCond_ - positiveCond_
+
+    air.Mat("air")
+    ## 09 Oct 2026 Zuqi: I delete the follow part .Maxh(h/10) to obtain an "alomst" uniform mesh 
+    iron.Mat("iron") 
+    geo.Add(air)
+    geo.Add(iron)
+    geo.Add(positiveCond_)
+    geo.Add(negativeCond_)
+    
+    # generate mesh
+    return Mesh(geo.GenerateMesh(maxh=h))
