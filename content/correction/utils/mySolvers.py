@@ -14,15 +14,19 @@ from numpy import sum, isnan
 def mySolver(bilinearform,
              linearform,
              type: str = "sparsecholesky",  # Solver type ("sparsecholesky" or "superlu" for direct, "cg","gmres","qmr","minres" for iterative)
-             preconditioner: str = None,  # Preconditioning method if applicable
+             preconditioner: str = None,    # Preconditioning method if applicable
              atol: float = 1e-10,           # Absolute tolerance for convergence (iterative solvers only)
-             maxiter: int = 1000,            # Maximum iterations allowed in iterative solver
-             display: bool = False) -> GridFunction:
+             rtol: float = 1e-10,           # Relative tolerance for convergence (iterative solvers only)
+             maxiter: int = 1000,           # Maximum iterations allowed in iterative solver
+             display: bool = False,         # Controls printing of iteration statistics and solver status
+             detailed_result = False,       # returns additional information about the solver's performance iun a dict if True
+             restart : int = 50             # restart parameter for GMRES (only relevant if type is "gmres")
+             ) -> GridFunction:
     """
     Solve a linear variational problem using direct or iterative methods.
 
     This function handles both direct and iterative approaches for solving the discrete system 
-    derived from finite element formulations. Direct solvers (sparsecholesky ) factorize the 
+    derived from finite element formulations. Direct solvers (sparsecholesky, superlu) factorize the 
     matrix directly, while iterative solvers require careful convergence criteria handling.
     
     Parameters:
@@ -34,7 +38,7 @@ def mySolver(bilinearform,
 
         type (str):    Solver algorithm to use. Supports:
                       "sparsecholesky": Direct sparse Cholesky factorization + solve
-                      "superlu":         Uses scipy SuperLU direct solver
+                      "superlu":         Uses scipy's SuperLU direct solver
                       "pardiso":         Uses PARDISO direct solver if available
                       Iterative solvers: "cg", "gmres", "qmr", or "minres"
 
@@ -52,6 +56,9 @@ def mySolver(bilinearform,
                       For iterative solvers, displays convergence rate information per iteration
                       if True. Direct methods do not print when set to False unless explicitly 
                       requested.
+
+        detailed_result (bool): If True, returns additional information about the solver's performance,
+                                including residuals, number of iterations, and convergence history.
 
     Returns:
         GridFunction: The solution grid function corresponding to the system's degrees of freedom.
@@ -83,20 +90,20 @@ def mySolver(bilinearform,
             f = linearform.Assemble().vec
             pre = Preconditioner(bilinearform, preconditioner)
             if type.lower() == "cg" :
-                invK = CGSolver(K, pre, printrates = display, atol  = atol,  maxiter  = maxiter)
+                invK = CGSolver(K, pre, printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
             elif type.lower() == "gmres" :
-                invK = GMResSolver(K, pre,  printrates = display, atol  = atol,  maxiter  = maxiter)
+                invK = GMResSolver(K, pre,  printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter, restart = restart)
             elif type.lower() == "qmr" :
-                invK = QMRSolver(K, pre,  printrates = display, atol  = atol,  maxiter  = maxiter)
+                invK = QMRSolver(K, pre,  printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
             elif type.lower() == "minres" :
-                invK = MinResSolver(K, pre,  printrates = display, atol  = atol,  maxiter  = maxiter)
+                invK = MinResSolver(K, pre,  printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
         else :
             K = bilinearform.Assemble().mat
             f = linearform.Assemble().vec
-            if type.lower() == "cg" : invK = CGSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol,  maxiter  = maxiter)
-            elif type.lower() == "gmres" : invK = GMResSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol,  maxiter  = maxiter)
-            elif type.lower() == "qmr" : invK = QMRSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol,  maxiter  = maxiter)
-            elif type.lower() == "minres" : invK = MinResSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol,  maxiter  = maxiter)
+            if type.lower() == "cg" : invK = CGSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
+            elif type.lower() == "gmres" : invK = GMResSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
+            elif type.lower() == "qmr" : invK = QMRSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
+            elif type.lower() == "minres" : invK = MinResSolver(K, freedofs = fes.FreeDofs(), printrates = display, atol  = atol, tol = rtol,  maxiter  = maxiter)
 
     sol.vec.data = invK * f
     if type.lower() in ["cg", "gmres", "qmr", "minres"] :
@@ -104,6 +111,10 @@ def mySolver(bilinearform,
         else : print(f"Converged in {len(invK.residuals)} iterations (residual = {invK.residuals[-1] :.4e})")
     else: 
         if sum(isnan(sol.vec[:].FV().NumPy())): print("FAILURE : Direct solver returned NaN")
+
+    if detailed_result:
+        return {"solution": sol, "residuals": invK.residuals , "iterations": len(invK.residuals)}
+    
     return sol
     
 

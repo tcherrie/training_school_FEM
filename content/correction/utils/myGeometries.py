@@ -202,7 +202,6 @@ Created on Mon Oct 23 21:23:29 2023
 from netgen.occ import Pnt, Segment, ArcOfCircle, Segment, Face, Wire, X, Y, Z, Glue, OCCGeometry, Axis
 from ngsolve import sqrt
 #from ngsolve.internal import *
-from ngsolve.webgui import Draw
 from netgen.webgui import Draw as DrawGeo
 
 outer_len = 150*10**(-3)
@@ -214,35 +213,6 @@ core_air_z = 30*10**(-3)
 core_air_x = 30*10**(-3)
 
 splitting = 8
-
-
-def printmasks(mesh):
-    fes = H1(mesh, order=1)
-    cf = CoefficientFunction((1))
-
-    dOmega_bottom_mask = GridFunction(fes)
-    dOmega_bottom_mask.Set(cf, definedon=mesh.Boundaries("dOmega_bottom"))
-    Draw(dOmega_bottom_mask, mesh, 'dOmega_bottom_mask')
-
-    dOmega_up_mask = GridFunction(fes)
-    dOmega_up_mask.Set(cf, definedon=mesh.Boundaries("dOmega_up"))
-    Draw(dOmega_up_mask, mesh, 'dOmega_up_mask')
-
-    dOmega_left_mask = GridFunction(fes)
-    dOmega_left_mask.Set(cf, definedon=mesh.Boundaries("dOmega_left"))
-    Draw(dOmega_left_mask, mesh, 'dOmega_left_mask')
-
-    dOmega_right_mask = GridFunction(fes)
-    dOmega_right_mask.Set(cf, definedon=mesh.Boundaries("dOmega_right"))
-    Draw(dOmega_right_mask, mesh, 'dOmega_right_mask')
-
-    dOmega_back_mask = GridFunction(fes)
-    dOmega_back_mask.Set(cf, definedon=mesh.Boundaries("dOmega_back"))
-    Draw(dOmega_back_mask, mesh, 'dOmega_back_mask')
-
-    dOmega_forward_mask = GridFunction(fes)
-    dOmega_forward_mask.Set(cf, definedon=mesh.Boundaries("dOmega_forward"))
-    Draw(dOmega_forward_mask, mesh, 'dOmega_forward_mask')
 
 
 def geometryCoil(splitting = 1, outer_len = 150e-3, coil_z_len = 46e-3, 
@@ -399,17 +369,6 @@ def geometryPaperRen():
     coil_z_height = 20*10**(-3)
 
     domains = []
-
-    def drawCorner(k):
-        if curved:
-            seg1 = ArcOfCircle(a4a, a4c, a4b)
-        else:
-            seg1 = Segment(a4a,a4b)
-        seg2 = Segment(a4b,b4)
-        seg3 = Segment(b4,a4a)
-        corner_face = Face(Wire([seg1,seg2,seg3]))
-        corner = Pipe(spine,corner_face,auxspine=heli)
-        return corner
 
     o1 = Pnt(60*10**(-3),80*10**(-3),-60*10**(-3))
     o2 = Pnt(-80*10**(-3),80*10**(-3),-60*10**(-3))
@@ -573,3 +532,299 @@ def geometryPaperRen():
 
     geo = OCCGeometry(Glue(domains))
     return geo
+
+
+
+# ============================================================================
+# TEAM Problem 15: Eddy current problem with conducting plate and slot
+# ============================================================================
+
+"""
+TEAM Problem 15: Measurement of impedance change due to a surface-breaking slot
+in a conducting plate, using an excitation coil.
+
+Reference: TEAM Workshop Benchmark Problem 15
+
+Two test experiments are defined:
+  - Test Experiment No. 1: f = 900 Hz, N = 3790 turns
+  - Test Experiment No. 2: f = 7000 Hz, N = 408 turns
+"""
+
+from netgen.occ import (
+    Pnt,
+    Z,
+    Box,
+    Sphere,
+    Cylinder,
+    Glue,
+    OCCGeometry,
+)
+
+from netgen.webgui import Draw as DrawGeo
+
+
+def team15_geometry(
+    EXPERIMENT=1,
+    x_coil=0.0,
+    air_radius=100.0,
+    symmetry=1,
+    draw=False,
+    h_outer=40.0,
+    h_coil=10.0,
+    h_plate=7.5,
+    h_air = 20.0,
+    h_air_inclusion=2.0,
+    h_lateral_plate = 10.0
+):
+    """
+    Build the OCC geometry of a coil above a slotted copper plate.
+
+    All length and mesh-size parameters are specified in mm.
+
+    Parameters
+    ----------
+    EXPERIMENT : int
+        Benchmark configuration (1 or 2).
+    x_coil : float
+        Coil-axis position along x [mm].
+    air_radius : float
+        Radius of the spherical air domain [mm].
+    symmetry : int
+        1: full geometry
+        2: retain y >= 0
+        4: retain x >= 0 and y >= 0 (requires x_coil = 0).
+    draw : bool
+        If True, display the OCC geometry.
+    h_outer : float
+        Maximum mesh size on the outer spherical boundary [mm].
+    h_coil : float
+        Maximum mesh size in the coil [mm].
+    h_plate : float
+        Maximum mesh size in the copper plate [mm].
+    h_air_inclusion : float
+        Target mesh size in the air near the plate and coil [mm].
+    h_plate_lateral : float
+        Target mesh size on the lateral faces of the plates [mm].
+
+    Returns
+    -------
+    OCCGeometry
+        Geometry ready for mesh generation.
+    """
+
+    # =========================================================
+    # 1. Units and experiment parameters
+    # =========================================================
+    mm = 1e-3
+
+    x_coil *= mm
+    air_radius *= mm
+
+    h_outer *= mm
+    h_coil *= mm
+    h_plate *= mm
+    h_air *= mm
+    h_air_inclusion *= mm
+    h_lateral_plate *= mm
+
+    if EXPERIMENT == 1:
+        a2, a1, b, lift = (
+            6.15 * mm,
+            12.4 * mm,
+            6.15 * mm,
+            0.88 * mm,
+        )
+        N_turns, freq = 3790, 900.0
+
+    elif EXPERIMENT == 2:
+        a2, a1, b, lift = (
+            9.34 * mm,
+            18.4 * mm,
+            9.0 * mm,
+            2.03 * mm,
+        )
+        N_turns, freq = 408, 7000.0
+
+    else:
+        raise ValueError("EXPERIMENT must be 1 or 2.")
+
+    if symmetry not in (1, 2, 4):
+        raise ValueError("symmetry must be 1, 2, or 4.")
+
+    if symmetry == 4 and abs(x_coil) > 1e-12:
+        raise ValueError("symmetry=4 requires x_coil=0.")
+
+    if min(h_outer, h_coil, h_plate, h_air_inclusion) <= 0:
+        raise ValueError("All mesh sizes must be positive.")
+
+    # =========================================================
+    # 2. Physical and geometrical parameters
+    # =========================================================
+    t_plate = 12.22 * mm
+
+    two_c = 12.60 * mm
+    w_slot = 0.28 * mm
+    h_slot = 5.00 * mm
+
+    plate_L = 120.0 * mm
+    tol = 1e-6 * mm
+
+    # =========================================================
+    # 3. Spherical air domain
+    # =========================================================
+    air = Sphere(
+        Pnt(0, 0, 0),
+        air_radius,
+    )
+    air.faces.name = "outer"
+
+    # =========================================================
+    # 4. Copper plate with slot
+    # =========================================================
+    plate = Box(
+        Pnt(-plate_L / 2, -plate_L / 2, -t_plate),
+        Pnt(plate_L / 2, plate_L / 2, 0),
+    )
+
+    slot = Box(
+        Pnt(-two_c / 2, -w_slot / 2, -h_slot),
+        Pnt(two_c / 2, w_slot / 2, 0),
+    )
+
+    plate = plate - slot
+    plate.solids.name = "plate"
+    plate.faces[0].maxh = h_lateral_plate
+    plate.faces[1].maxh = h_lateral_plate
+    plate.faces[2].maxh = h_lateral_plate
+    plate.faces[3].maxh = h_lateral_plate
+    plate.faces[4].maxh = h_lateral_plate
+
+    # =========================================================
+    # 5. Coil: annulus with axis parallel to z
+    # =========================================================
+    cyl_o = Cylinder(
+        Pnt(x_coil, 0, lift),
+        Z,
+        r=a1,
+        h=b,
+    )
+
+    cyl_i = Cylinder(
+        Pnt(x_coil, 0, lift),
+        Z,
+        r=a2,
+        h=b,
+    )
+
+    coil = cyl_o - cyl_i
+    coil.solids.name = "coil"
+
+    # =========================================================
+    # 6. Air excludes the plate and coil
+    # =========================================================
+    air = air - plate - coil
+    air.solids.name = "air"
+
+    # =========================================================
+    # 7. Symmetry clipping
+    # =========================================================
+    if symmetry in (2, 4):
+
+        R = air_radius + 1.0 * mm
+
+        if symmetry == 2:
+            # Keep y >= 0
+            clip = Box(
+                Pnt(-R, 0, -R),
+                Pnt(R, R, R),
+            )
+
+        else:
+            # Keep x >= 0 and y >= 0
+            clip = Box(
+                Pnt(0, 0, -R),
+                Pnt(R, R, R),
+            )
+
+        # Name clipping planes before Boolean operations.
+        for face in clip.faces:
+            center = face.center
+
+            if symmetry == 4 and abs(center[0]) < tol:
+                face.name = "sym_x"
+
+            if abs(center[1]) < tol:
+                face.name = "sym_y"
+
+        plate = plate * clip
+        coil = coil * clip
+        air = air * clip
+
+        plate.solids.name = "plate"
+        coil.solids.name = "coil"
+        air.solids.name = "air"
+
+    # =========================================================
+    # 8. Mesh size control
+    # =========================================================
+    air.solids.maxh = h_air
+    plate.solids.maxh = h_plate
+    coil.solids.maxh = h_coil
+
+    # =========================================================
+    # 9. Outer spherical boundary mesh size
+    # =========================================================
+    for face in air.faces:
+        if face.name == "outer":
+            face.maxh = h_outer
+
+    # =========================================================
+    # 10. Name slot faces without additional refinement
+    # =========================================================
+    for face in plate.faces:
+        center = face.center
+
+        if (
+            abs(center[0]) <= two_c / 2 + tol
+            and abs(center[1]) <= w_slot / 2 + tol
+            and center[2] >= -h_slot - tol
+        ):
+            face.name = "slot"
+
+    # =========================================================
+    # 11. Local air refinement near the coil and slot
+    # =========================================================
+    margin = 3.0 * h_air_inclusion
+
+    x_min = min(-two_c / 2, x_coil - a1) - margin
+    x_max = max(two_c / 2, x_coil + a1) + margin
+
+    y_min = min(-w_slot / 2, -a1) - margin
+    y_max = max(w_slot / 2, a1) + margin
+
+    z_min = -h_slot - margin
+    z_max = lift + b + margin
+
+    # This applies a mesh size to existing air boundary faces.
+    # It does not guarantee volumetric refinement of the air.
+    for face in air.faces:
+        center = face.center
+
+        near_plate_or_coil = (
+            x_min <= center[0] <= x_max
+            and y_min <= center[1] <= y_max
+            and z_min <= center[2] <= z_max
+        )
+
+        if near_plate_or_coil and face.name != "outer":
+            face.maxh = h_air_inclusion
+
+    # =========================================================
+    # 12. Glue and create OCC geometry
+    # =========================================================
+    geo = Glue([plate, coil, air])
+
+    if draw:
+        DrawGeo(geo)
+
+    return OCCGeometry(geo)
