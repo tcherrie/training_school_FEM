@@ -8,11 +8,12 @@ from time import time
 
 from ngsolve import GridFunction, Preconditioner
 from ngsolve.krylovspace import CGSolver, GMResSolver, QMRSolver, MinResSolver
+from ngsolve.solvers import SuperLU
 from numpy import sum, isnan
 
 def mySolver(bilinearform,
              linearform,
-             type: str = "sparsecholesky",  # Solver type ("sparsecholesky" for direct, "cg","gmres","qmr","minres" for iterative)
+             type: str = "sparsecholesky",  # Solver type ("sparsecholesky" or "superlu" for direct, "cg","gmres","qmr","minres" for iterative)
              preconditioner: str = None,  # Preconditioning method if applicable
              atol: float = 1e-10,           # Absolute tolerance for convergence (iterative solvers only)
              maxiter: int = 1000,            # Maximum iterations allowed in iterative solver
@@ -33,6 +34,7 @@ def mySolver(bilinearform,
 
         type (str):    Solver algorithm to use. Supports:
                       "sparsecholesky": Direct sparse Cholesky factorization + solve
+                      "superlu":         Uses scipy SuperLU direct solver
                       "pardiso":         Uses PARDISO direct solver if available
                       Iterative solvers: "cg", "gmres", "qmr", or "minres"
 
@@ -67,10 +69,14 @@ def mySolver(bilinearform,
 
     fes = bilinearform.space
     sol = GridFunction(fes)
-    if type == "sparsecholesky" or type == "pardiso" : # pardiso doesn't work on jupyterLite deployement
+    if type.lower() == "sparsecholesky" or type.lower() == "pardiso" or type.lower() == "superlu": # pardiso doesn't work on jupyterLite deployement
         K = bilinearform.Assemble().mat
         f = linearform.Assemble().vec
-        invK = K.Inverse(freedofs = fes.FreeDofs(), inverse = type)
+        if type.lower() == "superlu":
+            invK = SuperLU(K, freedofs = fes.FreeDofs())
+        else:
+            invK = K.Inverse(freedofs = fes.FreeDofs(), inverse = type)
+        
     else:
         if preconditioner is not None:
             K = bilinearform.Assemble().mat
@@ -94,8 +100,8 @@ def mySolver(bilinearform,
 
     sol.vec.data = invK * f
     if type.lower() in ["cg", "gmres", "qmr", "minres"] :
-        if len(invK.residuals)==maxiter: print(f"FAILURE : Iterative solver failed to converge after {maxiter} iterations (residual = {invK.residuals[-1]})")
-        else : print(f"Converged in {len(invK.residuals)} iterations (residual = {invK.residuals[-1]})")
+        if len(invK.residuals)==maxiter: print(f"FAILURE : Iterative solver failed to converge after {maxiter} iterations (residual = {invK.residuals[-1] :.4e})")
+        else : print(f"Converged in {len(invK.residuals)} iterations (residual = {invK.residuals[-1] :.4e})")
     else: 
         if sum(isnan(sol.vec[:].FV().NumPy())): print("FAILURE : Direct solver returned NaN")
     return sol
