@@ -50,9 +50,7 @@ def disk(radius: float = 1.,
 
 ### Provisoire
 
-from ngsolve import Mesh as ngsMesh
-from netgen.geom2d import CSG2d, Circle, Rectangle
-from netgen.geom2d import EdgeInfo as EI, PointInfo as PI, Solid2d
+from netgen.geom2d import CSG2d, Rectangle
 
 
 def gaped_inductor(
@@ -152,7 +150,7 @@ def gaped_inductor(
     geo.Add(positiveCond_)
     geo.Add(negativeCond_)
 
-    return Mesh(geo.GenerateMesh(maxh=h))
+    return ngs.Mesh(geo.GenerateMesh(maxh=h))
 
 
 def gapedInductorrefine(airgap : float = 1e-3, # if airgap put True
@@ -184,7 +182,7 @@ def gapedInductorrefine(airgap : float = 1e-3, # if airgap put True
     geo.Add(negativeCond_)
     
     # generate mesh
-    return ngsMesh(geo.GenerateMesh(maxh=h))
+    return ngs.Mesh(geo.GenerateMesh(maxh=h))
 
 
 
