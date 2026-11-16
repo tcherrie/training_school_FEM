@@ -1,4 +1,5 @@
 
+from typing import Literal
 from ngsolve import GridFunction, CoefficientFunction, CF, FESpace, LinearForm, BilinearForm, sqrt, Integrate
 from numpy.linalg import norm
 from numpy import isnan
@@ -352,3 +353,63 @@ def solveNL(fes : FESpace,                                                      
                "wall_time" : time() - tStart}
     if verbosity >=2 : print(f" --------------------- END NEWTON --------------------- ")  
     return results
+
+
+from time import perf_counter
+import numpy as np
+
+def iterative_solve(fes, residual, lin_op, 
+                    step_init=0.01, 
+                    tol=1e-6,
+                    maxit=1000,
+                    factor_once=False, 
+                    constant_step=None, 
+                    verbosity=1):
+    """ Iterative residual solver.
+
+    constant_step: if a float, use a FIXED relaxation tau^n = constant_step
+        (damped iteration, no backtracking growth) -- used for the fixed-point.
+        If None, use adaptive backtracking (step grows up to 1.0) -- used for
+        Kačanov and Newton.
+    """
+    da, v = fes.TnT()
+    sol = GridFunction(fes)
+    resList = []
+    step = constant_step if constant_step is not None else step_init
+    t_start = perf_counter()
+    free_dofs = fes.FreeDofs()
+    
+    for i in range(maxit):
+        res = LinearForm(residual(sol, v)).Assemble().vec
+        norm_r = np.linalg.norm(res.FV().NumPy()[free_dofs])
+        resList.append(norm_r)
+        if verbosity >= 2:
+            print(f"iter {i:3d}: ||R|| = {norm_r:.5e} | step = {step:.2e}")
+        
+        if factor_once:
+            if i == 0:
+                K = BilinearForm(lin_op(da, v, sol)).Assemble().mat
+                Kinv = K.Inverse(freedofs=free_dofs)
+            d = Kinv * res
+        else:
+            K = BilinearForm(lin_op(da, v, sol)).Assemble().mat
+            Kinv = K.Inverse(freedofs=free_dofs)
+            d = Kinv * res
+        
+        sol.vec.data -= step * d
+        if constant_step is not None:
+            step = constant_step          # fixed relaxation (damped fixed-point)
+        elif i > 0 and resList[-1] < resList[-2]:
+            step = min(1.0, 1.2 * step)
+        else:
+            step = step / 2
+        if norm_r < tol:
+            break
+    
+    t_end = perf_counter()
+    if verbosity >= 1:
+        converged = "✅" if norm_r < tol else "❌"
+        print(f"  {converged}: {len(resList)} iters, "
+              f"final ||R|| = {resList[-1]:.5e}, "
+              f"time = {(t_end - t_start) * 1000:.1f} ms")
+    return sol, resList, (t_end - t_start)
