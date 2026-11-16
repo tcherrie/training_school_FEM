@@ -47,7 +47,7 @@
 #
 # |**<u>Objective</u>** : Solve 2D magnetostatics problems (linear and nonlinear)|
 # |---|
-# |*Indicative duration* : 2 hours|
+# |*Indicative duration* : 1 hour|
 #
 # <a id='1_linear_problem'></a>
 #
