@@ -1,4 +1,5 @@
 
+from typing import Literal
 from ngsolve import GridFunction, CoefficientFunction, CF, FESpace, LinearForm, BilinearForm, sqrt, Integrate
 from numpy.linalg import norm
 from numpy import isnan

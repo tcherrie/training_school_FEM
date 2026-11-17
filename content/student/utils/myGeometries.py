@@ -542,7 +542,9 @@ def team15_geometry(
     h_plate=7.5,
     h_air = 20.0,
     h_air_inclusion=2.0,
-    h_lateral_plate = 10.0
+    h_lateral_plate = 10.0,
+    crack = True,
+    full_air = False,
 ):
     """
     Build the OCC geometry of a coil above a slotted copper plate.
@@ -653,6 +655,7 @@ def team15_geometry(
         Pnt(-plate_L / 2, -plate_L / 2, -t_plate),
         Pnt(plate_L / 2, plate_L / 2, 0),
     )
+    
 
     slot = Box(
         Pnt(-two_c / 2, -w_slot / 2, -h_slot),
@@ -660,7 +663,11 @@ def team15_geometry(
     )
 
     plate = plate - slot
-    plate.solids.name = "plate"
+    if full_air:
+        plate_label = "air"
+    else:
+        plate_label = "plate"
+    plate.solids.name = plate_label
     plate.faces[0].maxh = h_lateral_plate
     plate.faces[1].maxh = h_lateral_plate
     plate.faces[2].maxh = h_lateral_plate
@@ -725,10 +732,11 @@ def team15_geometry(
                 face.name = "sym_y"
 
         plate = plate * clip
+        slot = slot * clip
         coil = coil * clip
         air = air * clip
 
-        plate.solids.name = "plate"
+        plate.solids.name = plate_label
         coil.solids.name = "coil"
         air.solids.name = "air"
 
@@ -749,6 +757,7 @@ def team15_geometry(
     # =========================================================
     # 10. Name slot faces without additional refinement
     # =========================================================
+
     for face in plate.faces:
         center = face.center
 
@@ -790,8 +799,12 @@ def team15_geometry(
     # =========================================================
     # 12. Glue and create OCC geometry
     # =========================================================
-    geo = Glue([plate, coil, air])
-
+    if crack:
+        slot.solids.name = "air"
+    else:
+        slot.solids.name = plate_label
+        
+    geo = Glue([plate, coil, air-slot,slot])
     if draw:
         DrawGeo(geo)
 
